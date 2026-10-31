@@ -494,4 +494,4 @@ class MainWindow(QMainWindow):
             
         except Exception as e:
             QMessageBox.warning(self, "Ошибка", str(e))
-            
+            #
