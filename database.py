@@ -38,6 +38,7 @@ cursor.execute('''
     )
 ''')
 
+# Заполняем склад при первом запуске
 cursor.execute("SELECT COUNT(*) FROM papers")
 if cursor.fetchone()[0] == 0:
     papers = [
@@ -53,6 +54,7 @@ def get_papers():
     return cursor.fetchall()
 
 def save_order(client, qty, total_price, paper_id, deadline):
+    # Сохраняем заказ (БЕЗ списания бумаги, списание происходит в main_window)
     cursor.execute(
         "INSERT INTO orders (client, qty, total_price, paper_id, status, deadline) VALUES (?, ?, ?, ?, ?, ?)",
         (client, qty, total_price, paper_id, "Новый", deadline)
@@ -60,6 +62,7 @@ def save_order(client, qty, total_price, paper_id, deadline):
     conn.commit()
 
 def get_orders():
+    # Сортируем по статусу (В работе -> Новый -> Готов -> Выдан)
     cursor.execute("""
         SELECT id, client, qty, total_price, status, deadline 
         FROM orders 
@@ -75,8 +78,8 @@ def get_orders():
     return cursor.fetchall()
 
 def update_stock(paper_id, qty):
-    sheets_to_remove = qty * 4 * 1.05
-    cursor.execute("UPDATE papers SET stock = stock - ? WHERE id = ?", (int(sheets_to_remove), paper_id))
+    # Списываем РОВНО столько, сколько передали (без умножений)
+    cursor.execute("UPDATE papers SET stock = stock - ? WHERE id = ?", (qty, paper_id))
     conn.commit()
 
 def update_order_status(order_id, new_status):
@@ -101,18 +104,14 @@ def delete_paper(paper_id):
     cursor.execute("DELETE FROM papers WHERE id = ?", (paper_id,))
     conn.commit()
 
-# НОВЫЕ ФУНКЦИИ ДЛЯ ПОЛЬЗОВАТЕЛЕЙ
 def register_user(name, login, password):
     try:
         cursor.execute("INSERT INTO users (name, login, password) VALUES (?, ?, ?)", (name, login, password))
         conn.commit()
         return True
     except sqlite3.IntegrityError:
-        return False # Логин уже занят
+        return False
 
 def check_user(login, password):
     cursor.execute("SELECT name FROM users WHERE login = ? AND password = ?", (login, password))
     return cursor.fetchone()
-    
-
-    
