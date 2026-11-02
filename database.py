@@ -113,3 +113,6 @@ def register_user(name, login, password):
 def check_user(login, password):
     cursor.execute("SELECT name FROM users WHERE login = ? AND password = ?", (login, password))
     return cursor.fetchone()
+    
+
+    
