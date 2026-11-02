@@ -483,23 +483,24 @@ class MainWindow(QMainWindow):
             paper_id = self.combo_paper.currentData()
             deadline = self.date_deadline.date().toString("dd.MM.yyyy")
             
-            # Проверка остатков на складе
+            # Проверяем остатки
             papers = db.get_papers()
             current_paper = next(p for p in papers if p[0] == paper_id)
             stock_available = current_paper[4]
             
             if stock_available < qty:
-                QMessageBox.critical(
+                QMessageBox.warning(
                     self, 
-                    "Ошибка склада", 
-                    f"Недостаточно бумаги!\n\nНа складе: {stock_available} л.\nТребуется: {qty} л.\n\nПожалуйста, пополните склад или уменьшите тираж."
+                    "Внимание: мало бумаги!", 
+                    f"На складе недостаточно бумаги!\n\nНа складе: {stock_available} л.\nТребуется: {qty} л.\n\nЗаказ будет сохранен, но вам необходимо срочно закупить материал."
                 )
-                return 
+                db.update_stock(paper_id, stock_available) 
+            else:
 
+                db.update_stock(paper_id, qty)
             db.save_order(client, qty, total, paper_id, deadline)
-            db.update_stock(paper_id, qty)
             
-            QMessageBox.information(self, "Успех", "Заказ сохранен, бумага списана со склада!")
+            QMessageBox.information(self, "Успех", "Заказ сохранен в очередь!")
             
             self.input_client.clear()
             self.input_qty.clear()
