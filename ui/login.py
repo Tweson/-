@@ -118,7 +118,7 @@ class AuthWindow(QWidget):
 
         user = db.check_user(login, password)
         if user:
-            self.open_main(user[0]) # Передаем имя пользователя
+            self.open_main(user[0])
         else:
             QMessageBox.warning(self, "Ошибка", "Неверный логин или пароль!")
 
