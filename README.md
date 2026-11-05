@@ -26,3 +26,5 @@
    ```bash
    git clone https://github.com/Tweson/Typography.git
    cd Typography
+
+   <!-- Проверка Pull Request -->
