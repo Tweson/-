@@ -10,13 +10,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (empty($name) || empty($email) || empty($password)) {
         $error = "Заполните все поля!";
-    } elseif (mb_strlen($name) < 2 || mb_strlen($name) > 50) {
+    } elseif (strlen($name) < 2 || strlen($name) > 50) {
         $error = "Имя должно быть от 2 до 50 символов.";
     } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         $error = "Введите корректный email.";
-    } elseif (mb_strlen($password) < 6) {
+    } elseif (strlen($password) < 6) {
         $error = "Пароль должен быть не менее 6 символов.";
-    } elseif (mb_strlen($password) > 50) {
+    } elseif (strlen($password) > 50) {
         $error = "Пароль не должен превышать 50 символов.";
     } else {
         $hash = password_hash($password, PASSWORD_DEFAULT);

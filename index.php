@@ -7,17 +7,23 @@ $userId = $is_auth ? $_SESSION['user_id'] : null;
 $action = $_GET['action'] ?? 'list';
 $id = (int)($_GET['id'] ?? 0);
 $error = '';
+
 $categories = $db->query("SELECT * FROM categories")->fetchAll();
+
+$q = trim($_GET['q'] ?? '');
+$cat_filter = (int)($_GET['category'] ?? 0);
+$sort = $_GET['sort'] ?? 'date_desc';
+$allowed_sorts = ['date_desc', 'date_asc', 'title_asc', 'title_desc'];
+if (!in_array($sort, $allowed_sorts)) {
+    $sort = 'date_desc';
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $is_auth) {
     if (isset($_POST['create'])) {
         $title = trim($_POST['title']);
         $desc = trim($_POST['description']);
-        
         if (empty($title) || empty($desc) || empty($_POST['category_id'])) {
             $error = "Заполните все поля!";
-        } elseif (mb_strlen($title) > 100) {
-            $error = "Заголовок не должен превышать 100 символов.";
         } else {
             $stmt = $db->prepare("INSERT INTO requests (user_id, category_id, title, description) VALUES (?, ?, ?, ?)");
             $stmt->execute([$userId, $_POST['category_id'], $title, $desc]);
@@ -25,36 +31,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $is_auth) {
             exit;
         }
     }
-    if (isset($_POST['update'])) {
-        $title = trim($_POST['title']);
-        $desc = trim($_POST['description']);
-        
-        if (empty($title) || empty($desc) || empty($_POST['category_id'])) {
-            $error = "Заполните все поля!";
-        } elseif (mb_strlen($title) > 100) {
-            $error = "Заголовок не должен превышать 100 символов.";
-        } else {
-            if ($is_admin) {
-                $stmt = $db->prepare("UPDATE requests SET title = ?, description = ?, category_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?");
-                $stmt->execute([$title, $desc, $_POST['category_id'], $id]);
-            } else {
-                $stmt = $db->prepare("UPDATE requests SET title = ?, description = ?, category_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?");
-                $stmt->execute([$title, $desc, $_POST['category_id'], $id, $userId]);
-            }
-            header("Location: index.php");
-            exit;
-        }
-    }
-    if (isset($_POST['delete'])) {
+    if (isset($_POST['delete_request'])) {
         if ($is_admin) {
-            $stmt = $db->prepare("DELETE FROM requests WHERE id = ?");
-            $stmt->execute([$id]);
+            $db->prepare("DELETE FROM requests WHERE id = ?")->execute([$id]);
         } else {
-            $stmt = $db->prepare("DELETE FROM requests WHERE id = ? AND user_id = ?");
-            $stmt->execute([$id, $userId]);
+            $db->prepare("DELETE FROM requests WHERE id = ? AND user_id = ?")->execute([$id, $userId]);
         }
         header("Location: index.php");
         exit;
+    }
+    if (isset($_POST['send_offer'])) {
+        $message = trim($_POST['message']);
+        if (empty($message)) {
+            $error = "Напишите сообщение!";
+        } else {
+            $stmt = $db->prepare("SELECT user_id FROM requests WHERE id = ?");
+            $stmt->execute([$id]);
+            $requestOwner = $stmt->fetchColumn();
+
+            if ($requestOwner == $userId) {
+                $error = "Нельзя откликнуться на свою заявку.";
+            } elseif ($requestOwner === false) {
+                $error = "Заявка не найдена.";
+            } else {
+                try {
+                    $stmt = $db->prepare("INSERT INTO offers (request_id, sender_id, receiver_id, message) VALUES (?, ?, ?, ?)");
+                    $stmt->execute([$id, $userId, $requestOwner, $message]);
+                    header("Location: index.php?action=view&id=$id&success=1");
+                    exit;
+                } catch (PDOException $e) {
+                    $error = "Вы уже откликались на эту заявку.";
+                }
+            }
+        }
     }
 }
 
@@ -68,10 +77,39 @@ if ($id > 0) {
     }
 }
 
-$requests = $db->query("SELECT r.*, u.name as author_name, c.name as category_name FROM requests r JOIN users u ON r.user_id = u.id LEFT JOIN categories c ON r.category_id = c.id WHERE r.status = 'active' ORDER BY r.id DESC")->fetchAll();
+$sql = "SELECT r.*, u.name as author_name, c.name as category_name 
+        FROM requests r 
+        JOIN users u ON r.user_id = u.id 
+        LEFT JOIN categories c ON r.category_id = c.id 
+        WHERE r.status = 'active'";
+$params = [];
+
+if ($q !== '') {
+    $sql .= " AND (r.title LIKE ? OR r.description LIKE ?)";
+    $params[] = "%$q%";
+    $params[] = "%$q%";
+}
+if ($cat_filter > 0) {
+    $sql .= " AND r.category_id = ?";
+    $params[] = $cat_filter;
+}
+
+if ($sort === 'date_asc') {
+    $sql .= " ORDER BY r.created_at ASC";
+} elseif ($sort === 'title_asc') {
+    $sql .= " ORDER BY r.title ASC";
+} elseif ($sort === 'title_desc') {
+    $sql .= " ORDER BY r.title DESC";
+} else {
+    $sql .= " ORDER BY r.created_at DESC";
+}
+
+$stmt = $db->prepare($sql);
+$stmt->execute($params);
+$requests = $stmt->fetchAll();
 
 $userName = $_SESSION['user_name'] ?? '';
-$initial = mb_substr($userName, 0, 1);
+$initial = $userName !== '' ? strtoupper(substr($userName, 0, 1)) : '';
 ?>
 <!DOCTYPE html>
 <html lang="ru">
@@ -93,7 +131,7 @@ $initial = mb_substr($userName, 0, 1);
         .role-badge { background: #e74c3c; color: #fff; padding: 2px 6px; border-radius: 4px; font-size: 11px; margin-left: 5px; }
         .logout-btn { color: #ccc; display: flex; padding: 5px; border-radius: 4px; }
         .logout-btn:hover { color: #e74c3c; background: rgba(255,255,255,0.1); }
-        .container { max-width: 800px; margin: 30px auto; }
+        .container { max-width: 900px; margin: 30px auto; }
         .card { background: #fff; padding: 20px; border-radius: 8px; margin-bottom: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
         .badge { background: #e1f5fe; color: #0288d1; padding: 3px 8px; border-radius: 12px; font-size: 12px; }
         .btn { background: #3498db; color: #fff; text-decoration: none; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; display: inline-block; font-size: 14px; }
@@ -101,15 +139,18 @@ $initial = mb_substr($userName, 0, 1);
         .btn-edit { background: #f39c12; }
         .btn-toggle { background: #2ecc71; }
         .form-group { margin-bottom: 15px; }
-        input, textarea, select { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-family: sans-serif; }
+        input, textarea, select { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
         .create-form { display: none; background: #fff; padding: 20px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #2ecc71; }
         .create-form.active { display: block; }
         .full-card { background: #fff; padding: 30px; border-radius: 8px; }
         .meta { color: #777; font-size: 14px; margin-bottom: 20px; }
         .back { color: #3498db; text-decoration: none; display: inline-block; margin-bottom: 20px; }
-        .desc-preview { color: #444; font-size: 15px; line-height: 1.5; margin: 10px 0; }
-        .author-info { font-size: 12px; color: #777; margin-bottom: 15px; }
         .error-msg { color: #e74c3c; background: #fadbd8; padding: 10px; border-radius: 4px; margin-bottom: 15px; }
+        .success-msg { color: #27ae60; background: #eafaf1; padding: 10px; border-radius: 4px; margin-bottom: 15px; }
+        
+        .search-bar { background: #fff; padding: 15px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+        .search-bar input, .search-bar select { padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+        .search-bar input[type="text"] { flex: 1; min-width: 200px; }
     </style>
 </head>
 <body>
@@ -118,7 +159,7 @@ $initial = mb_substr($userName, 0, 1);
             <a href="index.php" class="logo">Колледж.Банк</a>
             <nav class="nav">
                 <a href="index.php">Заявки</a>
-                <a href="responses.php">Отклики</a>
+                <a href="responses.php">Мои отклики</a>
                 <?php if ($is_auth): ?>
                     <a href="profile.php" class="nav-right">Личный кабинет</a>
                 <?php else: ?>
@@ -129,7 +170,7 @@ $initial = mb_substr($userName, 0, 1);
             <div class="user-panel">
                 <?php if ($is_auth): ?>
                     <a href="profile.php" class="user-info">
-                        <div class="avatar"><?= htmlspecialchars(mb_strtoupper($initial)) ?></div>
+                        <div class="avatar"><?= htmlspecialchars($initial) ?></div>
                         <span class="user-name"><?= htmlspecialchars($userName) ?></span>
                         <?php if ($is_admin): ?><span class="role-badge">ADMIN</span><?php endif; ?>
                     </a>
@@ -143,9 +184,10 @@ $initial = mb_substr($userName, 0, 1);
 
     <div class="container">
         <?php if ($error) echo "<div class='error-msg'>$error</div>"; ?>
+        <?php if (isset($_GET['success'])) echo "<div class='success-msg'>Отклик успешно отправлен автору заявки!</div>"; ?>
 
         <?php if ($action === 'view' && $viewReq): ?>
-            <a href="index.php" class="back">← Назад</a>
+            <a href="index.php" class="back">← Назад к каталогу</a>
             <div class="full-card">
                 <h1><?= htmlspecialchars($viewReq['title']) ?></h1>
                 <p class="meta">Категория: <span class="badge"><?= htmlspecialchars($viewReq['category_name'] ?? 'Нет') ?></span> | Автор: <b><?= htmlspecialchars($viewReq['author_name']) ?></b></p>
@@ -153,49 +195,54 @@ $initial = mb_substr($userName, 0, 1);
                 <div style="font-size: 16px; line-height: 1.6; color: #333;">
                     <?= nl2br(htmlspecialchars($viewReq['description'])) ?>
                 </div>
+
                 <?php if ($viewReq['can_edit']): ?>
                     <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee;">
-                        <a href="index.php?action=edit&id=<?= $viewReq['id'] ?>" class="btn btn-edit">Редактировать</a>
-                        <a href="index.php?action=delete&id=<?= $viewReq['id'] ?>" class="btn btn-del">Удалить</a>
+                        <form method="POST" style="display:inline;">
+                            <button type="submit" name="delete_request" class="btn btn-del" onclick="return confirm('Удалить заявку?')">Удалить заявку</button>
+                        </form>
+                    </div>
+                <?php elseif ($is_auth): ?>
+                    <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee;">
+                        <h3>Откликнуться на заявку</h3>
+                        <form method="POST">
+                            <div class="form-group">
+                                <textarea name="message" rows="3" placeholder="Напишите, чем вы можете помочь..." required></textarea>
+                            </div>
+                            <button type="submit" name="send_offer" class="btn">Отправить отклик</button>
+                        </form>
                     </div>
                 <?php endif; ?>
             </div>
 
-        <?php elseif ($action === 'edit' && $viewReq && $viewReq['can_edit']): ?>
-            <div class="card">
-                <h2>Редактировать</h2>
-                <form method="POST">
-                    <div class="form-group"><input type="text" name="title" value="<?= htmlspecialchars($viewReq['title']) ?>" required></div>
-                    <div class="form-group">
-                        <select name="category_id" required>
-                            <?php foreach ($categories as $cat): ?>
-                                <option value="<?= $cat['id'] ?>" <?= $cat['id'] == $viewReq['category_id'] ? 'selected' : '' ?>><?= htmlspecialchars($cat['name']) ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    <div class="form-group"><textarea name="description" rows="5" required><?= htmlspecialchars($viewReq['description']) ?></textarea></div>
-                    <button type="submit" name="update" class="btn">Сохранить</button>
-                    <a href="index.php" class="btn" style="background:#95a5a6;">Отмена</a>
-                </form>
-            </div>
-
-        <?php elseif ($action === 'delete' && $viewReq && $viewReq['can_edit']): ?>
-            <div class="card" style="text-align: center;">
-                <h2>Удалить?</h2>
-                <p>Вы уверены, что хотите удалить "<?= htmlspecialchars($viewReq['title']) ?>"?</p>
-                <form method="POST">
-                    <button type="submit" name="delete" class="btn btn-del">Да</button>
-                    <a href="index.php" class="btn" style="background:#95a5a6;">Нет</a>
-                </form>
-            </div>
-
         <?php else: ?>
-            <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
-                <h2>Заявки</h2>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2>Каталог заявок</h2>
                 <?php if ($is_auth): ?>
                     <button class="btn btn-toggle" onclick="document.getElementById('createForm').classList.toggle('active')">+ Создать</button>
                 <?php endif; ?>
             </div>
+
+            <form method="GET" class="search-bar">
+                <input type="text" name="q" value="<?= htmlspecialchars($q) ?>" placeholder="Поиск по названию или описанию...">
+                
+                <select name="category">
+                    <option value="0">Все категории</option>
+                    <?php foreach ($categories as $cat): ?>
+                        <option value="<?= $cat['id'] ?>" <?= $cat_filter == $cat['id'] ? 'selected' : '' ?>><?= htmlspecialchars($cat['name']) ?></option>
+                    <?php endforeach; ?>
+                </select>
+
+                <select name="sort">
+                    <option value="date_desc" <?= $sort == 'date_desc' ? 'selected' : '' ?>>Сначала новые</option>
+                    <option value="date_asc" <?= $sort == 'date_asc' ? 'selected' : '' ?>>Сначала старые</option>
+                    <option value="title_asc" <?= $sort == 'title_asc' ? 'selected' : '' ?>>По названию (А-Я)</option>
+                    <option value="title_desc" <?= $sort == 'title_desc' ? 'selected' : '' ?>>По названию (Я-А)</option>
+                </select>
+
+                <button type="submit" class="btn">Найти</button>
+                <a href="index.php" class="btn" style="background:#95a5a6;">Сброс</a>
+            </form>
 
             <?php if ($is_auth): ?>
                 <div id="createForm" class="create-form">
@@ -215,19 +262,27 @@ $initial = mb_substr($userName, 0, 1);
                 </div>
             <?php endif; ?>
 
-            <?php foreach ($requests as $req): ?>
-                <div class="card">
-                    <h3 style="margin-top: 0;"><a href="index.php?action=view&id=<?= $req['id'] ?>" style="color: #2c3e50; text-decoration: none;"><?= htmlspecialchars($req['title']) ?></a></h3>
-                    <p style="margin-bottom: 10px;"><span class="badge"><?= htmlspecialchars($req['category_name'] ?? 'Без категории') ?></span></p>
-                    <div class="desc-preview"><?= htmlspecialchars(mb_substr($req['description'], 0, 100)) ?>...</div>
-                    <p class="author-info">Автор: <?= htmlspecialchars($req['author_name']) ?></p>
-                    <a href="index.php?action=view&id=<?= $req['id'] ?>" class="btn">Подробнее</a>
-                    <?php if ($is_auth && ($is_admin || $req['user_id'] == $userId)): ?>
-                        <a href="index.php?action=edit&id=<?= $req['id'] ?>" class="btn btn-edit">Ред.</a>
-                        <a href="index.php?action=delete&id=<?= $req['id'] ?>" class="btn btn-del">Удал.</a>
-                    <?php endif; ?>
+            <?php if (empty($requests)): ?>
+                <div class="card" style="text-align: center; color: #777;">
+                    <p>По вашему запросу ничего не найдено.</p>
                 </div>
-            <?php endforeach; ?>
+            <?php else: ?>
+                <?php foreach ($requests as $req): ?>
+                    <div class="card">
+                        <h3 style="margin-top: 0;"><a href="index.php?action=view&id=<?= $req['id'] ?>" style="color: #2c3e50; text-decoration: none;"><?= htmlspecialchars($req['title']) ?></a></h3>
+                        <p style="margin-bottom: 10px;"><span class="badge"><?= htmlspecialchars($req['category_name'] ?? 'Без категории') ?></span></p>
+                        <div style="color: #444; font-size: 15px; margin: 10px 0;"><?= htmlspecialchars(substr($req['description'], 0, 100)) ?>...</div>
+                        <p style="font-size: 12px; color: #777;">Автор: <?= htmlspecialchars($req['author_name']) ?></p>
+                        <a href="index.php?action=view&id=<?= $req['id'] ?>" class="btn">Подробнее</a>
+                        <?php if ($is_auth && ($is_admin || $req['user_id'] == $userId)): ?>
+                            <form method="POST" style="display:inline;">
+                                <input type="hidden" name="id" value="<?= $req['id'] ?>">
+                                <button type="submit" name="delete_request" class="btn btn-del" onclick="return confirm('Удалить?')">Удал.</button>
+                            </form>
+                        <?php endif; ?>
+                    </div>
+                <?php endforeach; ?>
+            <?php endif; ?>
         <?php endif; ?>
     </div>
 </body>

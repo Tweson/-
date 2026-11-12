@@ -14,7 +14,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $bio = trim($_POST['bio']);
     $skills = trim($_POST['skills']);
 
-    if (empty($name) || mb_strlen($name) < 2 || mb_strlen($name) > 50) {
+    if (empty($name) || strlen($name) < 2 || strlen($name) > 50) {
         $error = "Имя должно быть от 2 до 50 символов.";
     } else {
         $stmt = $db->prepare("UPDATE users SET name = ?, bio = ?, skills = ? WHERE id = ?");
@@ -30,7 +30,7 @@ $stmt->execute([$userId]);
 $user = $stmt->fetch();
 
 $userName = $_SESSION['user_name'] ?? '';
-$initial = mb_substr($userName, 0, 1);
+$initial = $userName !== '' ? strtoupper(substr($userName, 0, 1)) : '';
 ?>
 <!DOCTYPE html>
 <html lang="ru">
@@ -69,12 +69,12 @@ $initial = mb_substr($userName, 0, 1);
             <a href="index.php" class="logo">Колледж.Банк</a>
             <nav class="nav">
                 <a href="index.php">Заявки</a>
-                <a href="responses.php">Отклики</a>
+                <a href="responses.php">Мои отклики</a>
                 <a href="profile.php" class="nav-right">Личный кабинет</a>
             </nav>
             <div class="user-panel">
                 <a href="profile.php" class="user-info">
-                    <div class="avatar"><?= htmlspecialchars(mb_strtoupper($initial)) ?></div>
+                    <div class="avatar"><?= htmlspecialchars($initial) ?></div>
                     <span class="user-name"><?= htmlspecialchars($userName) ?></span>
                     <?php if (is_admin()): ?><span class="role-badge">ADMIN</span><?php endif; ?>
                 </a>

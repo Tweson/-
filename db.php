@@ -34,6 +34,20 @@ $db->exec("CREATE TABLE IF NOT EXISTS requests (
     FOREIGN KEY (category_id) REFERENCES categories(id)
 )");
 
+$db->exec("CREATE TABLE IF NOT EXISTS offers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    request_id INTEGER NOT NULL,
+    sender_id INTEGER NOT NULL,
+    receiver_id INTEGER NOT NULL,
+    message TEXT NOT NULL,
+    status TEXT DEFAULT 'pending',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(request_id, sender_id),
+    FOREIGN KEY (request_id) REFERENCES requests(id) ON DELETE CASCADE,
+    FOREIGN KEY (sender_id) REFERENCES users(id),
+    FOREIGN KEY (receiver_id) REFERENCES users(id)
+)");
+
 $count = $db->query("SELECT COUNT(*) FROM categories")->fetchColumn();
 if ($count == 0) {
     $db->exec("INSERT INTO categories (name) VALUES ('Программирование'), ('Математика'), ('Дизайн'), ('Языки')");
